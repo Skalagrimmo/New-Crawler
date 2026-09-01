@@ -1,0 +1,6 @@
+{
+  "name": "NetCrawler 2D Sprite Engine",
+  "description": "A high-performance 2D sprite engine and cyberpunk crawler with modular Pascal-inspired asset management, optimized batch rendering, Android pipeline build tools, and mobile touch/haptic controls.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
