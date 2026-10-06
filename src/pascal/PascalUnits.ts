@@ -864,4 +864,191 @@ end;
 
 end.`,
   },
+  {
+    unitName: 'UMiniMap',
+    fileName: 'MiniMap.pas',
+    description: 'Castle Game Engine UI Unit for Real-Time Tactical Mini-Map Rendering, Fog-of-War Queries, and Point of Interest Radar.',
+    code: `unit UMiniMap;
+
+{$mode objfpc}{$H+}
+
+interface
+
+uses
+  SysUtils, Classes, CastleVectors, CastleColors, CastleUIControls, CastleRenderContext;
+
+type
+  TTileType = (ttWall, ttPath, ttData, ttPortal, ttVirus, ttSafe, ttCache, ttBalcony, ttTerminal, ttDoor);
+  TPlayerDir = (pdNorth, pdEast, pdSouth, pdWest);
+
+  { Record holding individual cell exploration state }
+  TMiniMapCell = record
+    TileType: TTileType;
+    Explored: Boolean;
+    DiscoveredTick: QWord;
+  end;
+
+  { TMiniMapControl: Dedicated Castle Game Engine 2D UI Control }
+  TMiniMapControl = class(TCastleUserInterface)
+  private
+    FMapWidth: Integer;
+    FMapHeight: Integer;
+    FGrid: array of array of TMiniMapCell;
+    FPlayerX: Integer;
+    FPlayerY: Integer;
+    FPlayerDir: TPlayerDir;
+    FCellPixelSize: Single;
+    FPingActive: Boolean;
+    FPingProgress: Single;
+    
+    function GetExplorationPercentage: Single;
+    function GetTileColor(Tile: TTileType): TVector4;
+  public
+    constructor Create(AOwner: TComponent); override;
+    destructor Destroy; override;
+    
+    procedure Render; override;
+    procedure Update(const SecondsPassed: Single; var HandleInput: Boolean); override;
+    
+    procedure SetMapDimensions(const W, H: Integer);
+    procedure SetCell(const X, Y: Integer; const Tile: TTileType; const Explored: Boolean);
+    procedure UpdatePlayer(const X, Y: Integer; const Dir: TPlayerDir);
+    procedure TriggerRadarPing;
+    
+    property CellPixelSize: Single read FCellPixelSize write FCellPixelSize;
+    property ExplorationPercentage: Single read GetExplorationPercentage;
+  end;
+
+implementation
+
+constructor TMiniMapControl.Create(AOwner: TComponent);
+begin
+  inherited Create(AOwner);
+  FCellPixelSize := 8.0;
+  FPingActive := False;
+  FPingProgress := 0.0;
+end;
+
+destructor TMiniMapControl.Destroy;
+begin
+  SetLength(FGrid, 0, 0);
+  inherited Destroy;
+end;
+
+procedure TMiniMapControl.SetMapDimensions(const W, H: Integer);
+begin
+  FMapWidth := W;
+  FMapHeight := H;
+  SetLength(FGrid, W, H);
+end;
+
+procedure TMiniMapControl.SetCell(const X, Y: Integer; const Tile: TTileType; const Explored: Boolean);
+begin
+  if (X >= 0) and (X < FMapWidth) and (Y >= 0) and (Y < FMapHeight) then
+  begin
+    FGrid[X, Y].TileType := Tile;
+    FGrid[X, Y].Explored := Explored;
+  end;
+end;
+
+procedure TMiniMapControl.UpdatePlayer(const X, Y: Integer; const Dir: TPlayerDir);
+begin
+  FPlayerX := X;
+  FPlayerY := Y;
+  FPlayerDir := Dir;
+end;
+
+procedure TMiniMapControl.TriggerRadarPing;
+begin
+  FPingActive := True;
+  FPingProgress := 0.0;
+end;
+
+function TMiniMapControl.GetExplorationPercentage: Single;
+var
+  X, Y, ExploredCount, Total: Integer;
+begin
+  Total := FMapWidth * FMapHeight;
+  if Total <= 0 then Exit(0.0);
+  ExploredCount := 0;
+  for X := 0 to FMapWidth - 1 do
+    for Y := 0 to FMapHeight - 1 do
+      if FGrid[X, Y].Explored then
+        Inc(ExploredCount);
+  Result := (ExploredCount / Total) * 100.0;
+end;
+
+function TMiniMapControl.GetTileColor(Tile: TTileType): TVector4;
+begin
+  case Tile of
+    ttWall:     Result := Vector4(0.12, 0.16, 0.22, 1.0);
+    ttPath:     Result := Vector4(0.05, 0.08, 0.14, 1.0);
+    ttData:     Result := Vector4(0.22, 0.74, 0.97, 1.0); { Cyan }
+    ttPortal:   Result := Vector4(0.75, 0.52, 0.98, 1.0); { Purple }
+    ttVirus:    Result := Vector4(0.97, 0.44, 0.44, 1.0); { Red }
+    ttSafe:     Result := Vector4(0.20, 0.83, 0.60, 1.0); { Emerald }
+    ttCache:    Result := Vector4(0.98, 0.75, 0.14, 1.0); { Amber }
+    ttBalcony:  Result := Vector4(0.98, 0.57, 0.24, 1.0); { Orange }
+    ttTerminal: Result := Vector4(0.65, 0.55, 0.98, 1.0); { Violet }
+    ttDoor:     Result := Vector4(0.98, 0.44, 0.52, 1.0); { Rose }
+  end;
+end;
+
+procedure TMiniMapControl.Update(const SecondsPassed: Single; var HandleInput: Boolean);
+begin
+  inherited Update(SecondsPassed, HandleInput);
+  if FPingActive then
+  begin
+    FPingProgress := FPingProgress + SecondsPassed * 1.5;
+    if FPingProgress >= 1.0 then
+    begin
+      FPingActive := False;
+      FPingProgress := 0.0;
+    end;
+  end;
+end;
+
+procedure TMiniMapControl.Render;
+var
+  X, Y: Integer;
+  CellRect: TFloatRectangle;
+  CellCol: TVector4;
+begin
+  inherited Render;
+  
+  { 1. Render Dark Radar Background }
+  DrawRectangle(RenderRect, Vector4(0.04, 0.05, 0.08, 0.92));
+  
+  { 2. Render Discovered Map Tiles }
+  for X := 0 to FMapWidth - 1 do
+    for Y := 0 to FMapHeight - 1 do
+    begin
+      CellRect := FloatRectangle(
+        RenderRect.Left + X * FCellPixelSize,
+        RenderRect.Bottom + (FMapHeight - 1 - Y) * FCellPixelSize,
+        FCellPixelSize - 1.0,
+        FCellPixelSize - 1.0
+      );
+      
+      if not FGrid[X, Y].Explored then
+        DrawRectangle(CellRect, Vector4(0.02, 0.03, 0.05, 1.0))
+      else
+      begin
+        CellCol := GetTileColor(FGrid[X, Y].TileType);
+        DrawRectangle(CellRect, CellCol);
+      end;
+    end;
+    
+  { 3. Render Player Runner Indicator }
+  CellRect := FloatRectangle(
+    RenderRect.Left + FPlayerX * FCellPixelSize - 1.0,
+    RenderRect.Bottom + (FMapHeight - 1 - FPlayerY) * FCellPixelSize - 1.0,
+    FCellPixelSize + 2.0,
+    FCellPixelSize + 2.0
+  );
+  DrawRectangle(CellRect, Vector4(0.06, 0.72, 0.50, 1.0)); { Bright Emerald Runner }
+end;
+
+end.`,
+  },
 ];

@@ -22,6 +22,7 @@ import { ProfilerStats } from '../engine/types';
 import { inputManager } from '../engine/InputManager';
 import { GameCore } from '../game/GameCore';
 import { TILE_SPRITES, TILE_TYPES } from '../game/GameWorld';
+import { MiniMap } from './MiniMap';
 
 interface GameCanvasProps {
   gameCore: GameCore;
@@ -32,6 +33,7 @@ interface GameCanvasProps {
   touchControllerStyle: 'joystick' | 'dpad' | 'gestures_only';
   isDeviceSimulator: boolean;
   onOpenKeymap?: () => void;
+  onOpenRadarModal?: () => void;
 }
 
 export const GameCanvas: React.FC<GameCanvasProps> = ({
@@ -43,11 +45,13 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
   touchControllerStyle,
   isDeviceSimulator,
   onOpenKeymap,
+  onOpenRadarModal,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [viewMode, setViewMode] = useState<'2d' | '3d'>('2d');
   const [zoomLevel, setZoomLevel] = useState<number>(1.2);
+  const [showRadarHud, setShowRadarHud] = useState<boolean>(true);
   const [bindings, setBindings] = useState(inputManager.getBindings());
 
   useEffect(() => {
@@ -389,6 +393,22 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
             </div>
           )}
 
+          <button
+            onClick={() => {
+              setShowRadarHud(!showRadarHud);
+              touchHaptics.trigger('light_tap');
+            }}
+            className={`px-2 py-0.5 rounded text-xs flex items-center gap-1 transition-colors ${
+              showRadarHud
+                ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 font-semibold'
+                : 'bg-[#1A1E26] text-[#9CA3AF] hover:text-[#E5E7EB] border border-[#374151]'
+            }`}
+            title="Toggle Mini-Map Radar HUD Overlay"
+          >
+            <Radio className="w-3 h-3 text-emerald-400" />
+            <span className="text-[11px]">Radar</span>
+          </button>
+
           <div className="flex items-center gap-1.5 text-xs text-[#9CA3AF]">
             <Compass className="w-3.5 h-3.5 text-emerald-400" />
             <span>Facing: <b className="font-mono text-emerald-400 font-bold">{gameCore.playerDir}</b></span>
@@ -410,6 +430,17 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
           className="w-full h-full object-cover image-rendering-pixelated"
           style={{ imageRendering: 'pixelated' }}
         />
+
+        {/* Floating MiniMap HUD Overlay */}
+        {showRadarHud && (
+          <div className="absolute top-2 right-2 z-20 pointer-events-auto max-w-[200px] sm:max-w-[220px] hidden xs:block">
+            <MiniMap
+              gameCore={gameCore}
+              variant="hud"
+              onToggleExpand={onOpenRadarModal}
+            />
+          </div>
+        )}
 
         {/* CRT Scanline Filter */}
         {enableCRT && (

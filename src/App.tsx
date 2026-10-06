@@ -23,6 +23,8 @@ import {
   Keyboard,
   Save,
   HardDrive,
+  Compass,
+  MapPin,
 } from 'lucide-react';
 import { assetManager } from './engine/AssetManager';
 import { audioSynth } from './engine/AudioSynth';
@@ -41,9 +43,11 @@ import { BatchInspectorModal } from './components/BatchInspectorModal';
 import { CharacterSelectModal } from './components/CharacterSelectModal';
 import { GameCanvas } from './components/GameCanvas';
 import { KeyRemapModal } from './components/KeyRemapModal';
+import { MiniMap } from './components/MiniMap';
 import { PascalSourceViewer } from './components/PascalSourceViewer';
 import { PerformanceHUD } from './components/PerformanceHUD';
 import { SaveLoadModal } from './components/SaveLoadModal';
+import { TacticalRadarModal } from './components/TacticalRadarModal';
 
 export default function App() {
   const [targetPlatform, setTargetPlatform] = useState<PlatformTarget>('android');
@@ -55,6 +59,7 @@ export default function App() {
   const [showCharSelect, setShowCharSelect] = useState<boolean>(false);
   const [showKeyRemap, setShowKeyRemap] = useState<boolean>(false);
   const [showSaveModal, setShowSaveModal] = useState<boolean>(false);
+  const [showTacticalRadar, setShowTacticalRadar] = useState<boolean>(false);
   const [lastSavedTimestamp, setLastSavedTimestamp] = useState<number | null>(saveManager.getLastSavedTimestamp());
   const [isDeviceSimulator, setIsDeviceSimulator] = useState<boolean>(false);
   const [enableCRT, setEnableCRT] = useState<boolean>(false);
@@ -209,6 +214,11 @@ export default function App() {
       case 'clearsave':
         gameCore.clearSavedState('netcrawler_save_primary');
         break;
+      case 'map':
+      case 'radar':
+      case 'minimap':
+        setShowTacticalRadar(true);
+        break;
       case 'keymap':
       case 'keys':
       case 'controls':
@@ -216,7 +226,7 @@ export default function App() {
         setShowKeyRemap(true);
         break;
       case 'help':
-        gameCore.log('Commands: w/a/s/d (move), e (interact), scan, use <item>, equip <item>, save, load, saves, keys (remap), restart, help', 'sys');
+        gameCore.log('Commands: w/a/s/d (move), e (interact), scan, map (tactical radar), use <item>, equip <item>, save, load, saves, keys, restart, help', 'sys');
         break;
       default:
         gameCore.log(`Unknown command: '${cmd}'. Type 'help' for instructions.`, 'sys');
@@ -370,6 +380,15 @@ export default function App() {
           >
             <RefreshCw className="w-3.5 h-3.5 text-emerald-400" />
             <span>New Runner</span>
+          </button>
+
+          <button
+            onClick={() => setShowTacticalRadar(true)}
+            className="px-2.5 py-1.5 bg-[#1A1E26] hover:bg-[#252A36] text-[#E5E7EB] border border-[#374151] hover:border-emerald-500/40 rounded text-xs flex items-center gap-1.5 transition-colors font-medium"
+            title="Open Full Sector Tactical Radar Map"
+          >
+            <Compass className="w-3.5 h-3.5 text-emerald-400" />
+            <span>Tactical Radar</span>
           </button>
 
           <button
@@ -587,6 +606,13 @@ export default function App() {
               </div>
             </div>
           </div>
+
+          {/* Embedded Tactical Mini-Map Widget */}
+          <MiniMap
+            gameCore={gameCore}
+            onToggleExpand={() => setShowTacticalRadar(true)}
+            variant="compact"
+          />
         </div>
 
         {/* CENTER & RIGHT COLUMN: Viewport, Hacking Terminal & Log Feed (8 Cols on LG) */}
@@ -604,6 +630,7 @@ export default function App() {
             touchControllerStyle={currentProfile.touchControllerStyle}
             isDeviceSimulator={isDeviceSimulator}
             onOpenKeymap={() => setShowKeyRemap(true)}
+            onOpenRadarModal={() => setShowTacticalRadar(true)}
           />
 
           {/* Breach Protocol Interactive Hack Grid (Shown during hacking) */}
@@ -808,6 +835,12 @@ export default function App() {
       <KeyRemapModal
         isOpen={showKeyRemap}
         onClose={() => setShowKeyRemap(false)}
+      />
+
+      <TacticalRadarModal
+        isOpen={showTacticalRadar}
+        onClose={() => setShowTacticalRadar(false)}
+        gameCore={gameCore}
       />
     </div>
   );
