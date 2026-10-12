@@ -71,6 +71,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
   const fpsRef = useRef(60);
   const frameTimeRef = useRef(16.6);
   const lastFrameTimeRef = useRef(performance.now());
+  const lastStatsUpdateRef = useRef(0);
 
   // Camera smooth interpolation
   const cameraRef = useRef({ x: 1 * 32, y: 1 * 32 });
@@ -112,23 +113,27 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
             render3DView(ctx, canvas.width, canvas.height);
           }
 
-          // Emit profiler stats
-          const batchStats = spriteBatcher.getStats();
-          const memoryBudget = assetManager.getMemoryBudget();
+          // Keep diagnostics off the hot path: React state updates are limited to 4 Hz.
+          // Rendering itself continues at the requestAnimationFrame rate.
+          if (now - lastStatsUpdateRef.current >= 250) {
+            lastStatsUpdateRef.current = now;
+            const batchStats = spriteBatcher.getStats();
+            const memoryBudget = assetManager.getMemoryBudget();
 
-          onUpdateStats({
-            fps: fpsRef.current,
-            frameTimeMs: frameTimeRef.current,
-            drawCalls: viewMode === '2d' ? batchStats.drawCalls : 12,
-            spritesRendered: viewMode === '2d' ? batchStats.totalSprites : 8,
-            batchesCount: batchStats.batchesCount,
-            textureSwitches: batchStats.textureSwitches,
-            inputLatencyMs: Math.random() * 0.4 + 0.35,
-            memoryUsedMB: memoryBudget.currentTextureMemoryBytes / (1024 * 1024),
-            memoryMaxMB: memoryBudget.maxTextureMemoryBytes / (1024 * 1024),
-            hapticsTriggered: touchHaptics.getTriggerCount(),
-            activeParticles: particleEngine.getActiveCount(),
-          });
+            onUpdateStats({
+              fps: fpsRef.current,
+              frameTimeMs: frameTimeRef.current,
+              drawCalls: viewMode === '2d' ? batchStats.drawCalls : 12,
+              spritesRendered: viewMode === '2d' ? batchStats.totalSprites : 8,
+              batchesCount: batchStats.batchesCount,
+              textureSwitches: batchStats.textureSwitches,
+              inputLatencyMs: null,
+              memoryUsedMB: memoryBudget.currentTextureMemoryBytes / (1024 * 1024),
+              memoryMaxMB: memoryBudget.maxTextureMemoryBytes / (1024 * 1024),
+              hapticsTriggered: touchHaptics.getTriggerCount(),
+              activeParticles: particleEngine.getActiveCount(),
+            });
+          }
         }
       }
 
@@ -151,9 +156,18 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     const mapW = world.getWidth();
     const mapH = world.getHeight();
 
-    // Render Tiles
-    for (let y = 0; y < mapH; y++) {
-      for (let x = 0; x < mapH; x++) {
+    // Cull tile work to the visible world rectangle, with a one-tile safety margin.
+    // Camera coordinates are world pixels; zoom changes the visible world-space span.
+    const halfVisibleWorldWidth = width / (2 * zoomLevel);
+    const halfVisibleWorldHeight = height / (2 * zoomLevel);
+    const minTileX = Math.max(0, Math.floor((cameraRef.current.x - halfVisibleWorldWidth) / 32) - 1);
+    const maxTileX = Math.min(mapW - 1, Math.ceil((cameraRef.current.x + halfVisibleWorldWidth) / 32) + 1);
+    const minTileY = Math.max(0, Math.floor((cameraRef.current.y - halfVisibleWorldHeight) / 32) - 1);
+    const maxTileY = Math.min(mapH - 1, Math.ceil((cameraRef.current.y + halfVisibleWorldHeight) / 32) + 1);
+
+    // Render visible tiles only.
+    for (let y = minTileY; y <= maxTileY; y++) {
+      for (let x = minTileX; x <= maxTileX; x++) {
         const isExplored = world.isExplored(x, y);
         if (!isExplored) continue;
 
@@ -189,8 +203,9 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     ctx.scale(zoomLevel, zoomLevel);
     ctx.translate(-cameraRef.current.x, -cameraRef.current.y);
 
-    for (let y = 0; y < mapH; y++) {
-      for (let x = 0; x < mapW; x++) {
+    // Fog and lighting use the same visible bounds as tile rendering.
+    for (let y = minTileY; y <= maxTileY; y++) {
+      for (let x = minTileX; x <= maxTileX; x++) {
         const isExplored = world.isExplored(x, y);
         const posX = x * 32;
         const posY = y * 32;

@@ -87,7 +87,7 @@ export interface ProfilerStats {
   spritesRendered: number;
   batchesCount: number;
   textureSwitches: number;
-  inputLatencyMs: number;
+  inputLatencyMs: number | null;
   memoryUsedMB: number;
   memoryMaxMB: number;
   hapticsTriggered: number;

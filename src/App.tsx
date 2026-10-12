@@ -77,7 +77,7 @@ export default function App() {
     spritesRendered: 120,
     batchesCount: 4,
     textureSwitches: 2,
-    inputLatencyMs: 0.4,
+    inputLatencyMs: null,
     memoryUsedMB: 1.0,
     memoryMaxMB: 48.0,
     hapticsTriggered: 0,

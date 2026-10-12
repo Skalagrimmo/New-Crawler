@@ -91,7 +91,7 @@ export const PerformanceHUD: React.FC<PerformanceHUDProps> = ({ stats, platformN
           <span className="flex items-center gap-1.5">
             <Zap className="w-3 h-3 text-emerald-400" />
             <span>Polling Latency:</span>
-            <b className="font-mono text-[#E5E7EB]">{stats.inputLatencyMs.toFixed(2)}ms</b>
+            <b className="font-mono text-[#E5E7EB]">{stats.inputLatencyMs === null ? 'N/A' : stats.inputLatencyMs.toFixed(2) + 'ms'}</b>
           </span>
           <span className="flex items-center gap-1.5">
             <Vibrate className="w-3 h-3 text-emerald-400" />
