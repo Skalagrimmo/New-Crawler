@@ -81,7 +81,7 @@ export class GameCore {
       statusEffects: [],
     };
 
-    this.world = new GameWorld(15, 15, Date.now() % 100000);
+    this.world = new GameWorld(25, 25, Date.now() % 100000);
     this.playerPos = this.world.getStartPos();
 
     // Check if there is saved game data to resume session
