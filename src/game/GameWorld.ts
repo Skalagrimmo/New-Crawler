@@ -136,32 +136,39 @@ export class GameWorld {
     this.seed = seed;
     this.explored.clear();
 
-    // Initialize wall grid
     this.grid = Array.from({ length: this.height }, () =>
       Array.from({ length: this.width }, () => TILE_TYPES.WALL)
     );
 
-    // Simple deterministic PRNG
-    let s = seed >>> 0 || 1;
+    // Seeded xorshift PRNG keeps the same seed reproducible.
+    let state = seed >>> 0 || 1;
     const rand = () => {
-      s ^= s << 13;
-      s ^= s >>> 17;
-      s ^= s << 5;
-      s = s >>> 0;
-      return (s % 100000) / 100000;
+      state ^= state << 13;
+      state ^= state >>> 17;
+      state ^= state << 5;
+      state >>>= 0;
+      return (state % 100000) / 100000;
     };
-    const randInt = (min: number, max: number) => Math.floor(rand() * (max - min + 1)) + min;
+    const randInt = (min: number, max: number) =>
+      Math.floor(rand() * (max - min + 1)) + min;
+    const shuffle = <T,>(items: T[]): T[] => {
+      const result = [...items];
+      for (let i = result.length - 1; i > 0; i--) {
+        const j = Math.floor(rand() * (i + 1));
+        [result[i], result[j]] = [result[j], result[i]];
+      }
+      return result;
+    };
 
-    // DFS Maze Carve
+    // Carve a connected spanning maze first. These paths remain the guaranteed route.
     const carve = (x: number, y: number) => {
       this.grid[y][x] = TILE_TYPES.PATH;
-      const dirs = [
+      const dirs = shuffle([
         [0, -2],
         [0, 2],
         [-2, 0],
         [2, 0],
-      ].sort(() => rand() - 0.5);
-
+      ]);
       for (const [dx, dy] of dirs) {
         const nx = x + dx;
         const ny = y + dy;
@@ -178,11 +185,71 @@ export class GameWorld {
       }
     };
 
-    carve(1, 1);
-    this.startPos = { x: 1, y: 1 };
-    this.grid[1][1] = TILE_TYPES.SAFE;
+    // Odd dimensions make the two-cell carving grid symmetrical.
+    const startX = Math.min(1, this.width - 2);
+    const startY = Math.min(1, this.height - 2);
+    carve(startX, startY);
+    this.startPos = { x: startX, y: startY };
+    this.grid[startY][startX] = TILE_TYPES.SAFE;
 
-    // Place key special nodes
+    // Add optional cross-links between corridors. This creates loops and alternate routes
+    // without destroying the original connected path through the level.
+    const loopCandidates: Array<{ x: number; y: number }> = [];
+    for (let y = 1; y < this.height - 1; y++) {
+      for (let x = 1; x < this.width - 1; x++) {
+        if (this.grid[y][x] !== TILE_TYPES.WALL) continue;
+        const horizontal = this.grid[y][x - 1] !== TILE_TYPES.WALL &&
+          this.grid[y][x + 1] !== TILE_TYPES.WALL;
+        const vertical = this.grid[y - 1][x] !== TILE_TYPES.WALL &&
+          this.grid[y + 1][x] !== TILE_TYPES.WALL;
+        if (horizontal || vertical) loopCandidates.push({ x, y });
+      }
+    }
+
+    const loopCells: Array<{ x: number; y: number }> = [];
+    const loopTarget = Math.max(8, Math.floor((this.width * this.height) * 0.018));
+    for (const cell of shuffle(loopCandidates)) {
+      if (loopCells.length >= loopTarget) break;
+      if (this.grid[cell.y][cell.x] !== TILE_TYPES.WALL) continue;
+      const horizontal = this.grid[cell.y][cell.x - 1] !== TILE_TYPES.WALL &&
+        this.grid[cell.y][cell.x + 1] !== TILE_TYPES.WALL;
+      const vertical = this.grid[cell.y - 1][cell.x] !== TILE_TYPES.WALL &&
+        this.grid[cell.y + 1][cell.x] !== TILE_TYPES.WALL;
+      if (!horizontal && !vertical) continue;
+      this.grid[cell.y][cell.x] = TILE_TYPES.PATH;
+      loopCells.push(cell);
+    }
+
+    // Breadth-first distances help put the exit far from the start and distribute objectives.
+    const distances = new Map<string, number>();
+    const queue: Array<{ x: number; y: number }> = [{ ...this.startPos }];
+    distances.set(`${startX},${startY}`, 0);
+    for (let head = 0; head < queue.length; head++) {
+      const current = queue[head];
+      const nextDistance = (distances.get(`${current.x},${current.y}`) ?? 0) + 1;
+      for (const [dx, dy] of [[0, -1], [1, 0], [0, 1], [-1, 0]]) {
+        const x = current.x + dx;
+        const y = current.y + dy;
+        const key = `${x},${y}`;
+        if (
+          x < 0 || y < 0 || x >= this.width || y >= this.height ||
+          this.grid[y][x] === TILE_TYPES.WALL || distances.has(key)
+        ) continue;
+        distances.set(key, nextDistance);
+        queue.push({ x, y });
+      }
+    }
+
+    const reachable = queue.filter(({ x, y }) =>
+      this.grid[y][x] === TILE_TYPES.PATH && (x !== startX || y !== startY)
+    );
+    reachable.sort((a, b) =>
+      (distances.get(`${b.x},${b.y}`) ?? 0) - (distances.get(`${a.x},${a.y}`) ?? 0)
+    );
+    const portal = reachable[0] ?? { x: this.width - 2, y: this.height - 2 };
+    this.portalPos = { ...portal };
+    this.grid[portal.y][portal.x] = TILE_TYPES.PORTAL;
+
     const specials: TileType[] = [
       TILE_TYPES.DATA,
       TILE_TYPES.DATA,
@@ -193,43 +260,35 @@ export class GameWorld {
       TILE_TYPES.BALCONY,
       TILE_TYPES.TERMINAL,
     ];
+    const objectiveCandidates = shuffle(reachable.filter(({ x, y }) =>
+      this.grid[y][x] === TILE_TYPES.PATH
+    )).sort((a, b) =>
+      (distances.get(`${a.x},${a.y}`) ?? 0) - (distances.get(`${b.x},${b.y}`) ?? 0)
+    );
 
-    for (const sym of specials) {
-      for (let tries = 0; tries < 50; tries++) {
-        const rx = randInt(1, this.width - 2);
-        const ry = randInt(1, this.height - 2);
-        if (this.grid[ry][rx] === TILE_TYPES.PATH && (rx !== 1 || ry !== 1)) {
-          this.grid[ry][rx] = sym;
-          break;
-        }
+    // Spread points of interest along the route instead of clustering them near spawn.
+    for (let i = 0; i < specials.length && objectiveCandidates.length > 0; i++) {
+      const index = Math.min(
+        objectiveCandidates.length - 1,
+        Math.floor(((i + 1) / (specials.length + 1)) * objectiveCandidates.length)
+      );
+      const [cell] = objectiveCandidates.splice(index, 1);
+      if (cell && this.grid[cell.y][cell.x] === TILE_TYPES.PATH) {
+        this.grid[cell.y][cell.x] = specials[i];
       }
     }
 
-    // Place a locked security door between rooms if terminal exists
-    for (let y = 2; y < this.height - 2; y++) {
-      for (let x = 2; x < this.width - 2; x++) {
-        if (
-          this.grid[y][x] === TILE_TYPES.PATH &&
-          this.grid[y - 1][x] === TILE_TYPES.WALL &&
-          this.grid[y + 1][x] === TILE_TYPES.WALL
-        ) {
-          this.grid[y][x] = TILE_TYPES.DOOR;
-          break;
-        }
-      }
+    // Security gates are placed only on newly added cross-links, making them optional
+    // shortcuts rather than accidental blockers on the level's only route.
+    const doorCandidates = shuffle(loopCells.filter(({ x, y }) =>
+      this.grid[y][x] === TILE_TYPES.PATH
+    ));
+    const doorCount = Math.min(3, Math.max(1, Math.floor(loopCells.length / 4)));
+    for (const cell of doorCandidates.slice(0, doorCount)) {
+      this.grid[cell.y][cell.x] = TILE_TYPES.DOOR;
     }
 
-    // Place Master Portal at a distant position
-    let px = this.width - 2;
-    let py = this.height - 2;
-    while (this.grid[py][px] === TILE_TYPES.WALL) {
-      px = randInt(1, this.width - 2);
-      py = randInt(1, this.height - 2);
-    }
-    this.grid[py][px] = TILE_TYPES.PORTAL;
-    this.portalPos = { x: px, y: py };
-
-    this.markExplored(1, 1);
+    this.markExplored(startX, startY);
   }
 
   public serialize(): SerializedWorld {
